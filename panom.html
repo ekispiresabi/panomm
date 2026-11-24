@@ -298,6 +298,20 @@ body { margin: 0; padding: 0; font-family: var(--font); background: var(--bg-sec
       <p style="font-size: 13px; color: var(--text-secondary); margin: 0;">Servet Mıstak — kişisel sürüm</p>
     </div>
     <div id="auth-error" style="display:none; background: var(--bg-danger); color: var(--text-danger); padding: 10px 12px; border-radius: 8px; font-size: 13px; margin-bottom: 12px;"></div>
+    <div id="auth-info" style="display:none; background: var(--bg-success, #e6f4ea); color: var(--text-success, #1e7e34); padding: 10px 12px; border-radius: 8px; font-size: 13px; margin-bottom: 12px;"></div>
+    <div id="auth-recovery" style="display:none;">
+      <p style="font-size: 13px; color: var(--text-secondary); margin: 0 0 12px;">Yeni şifreni belirle.</p>
+      <div class="modal-row">
+        <label style="font-size: 12px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Yeni şifre</label>
+        <input type="password" id="auth-new-password" style="width: 100%; padding: 10px 12px; border: 0.5px solid var(--border-secondary); border-radius: 8px; background: var(--bg-primary); color: var(--text-primary); font-size: 14px; font-family: var(--font);" autocomplete="new-password">
+      </div>
+      <div class="modal-row" style="margin-bottom: 16px;">
+        <label style="font-size: 12px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Yeni şifre (tekrar)</label>
+        <input type="password" id="auth-new-password2" style="width: 100%; padding: 10px 12px; border: 0.5px solid var(--border-secondary); border-radius: 8px; background: var(--bg-primary); color: var(--text-primary); font-size: 14px; font-family: var(--font);" autocomplete="new-password">
+      </div>
+      <button id="auth-save-password-btn" style="width:100%; padding: 11px; font-size: 14px; font-weight: 500; border-radius: 8px; border: none; background: var(--text-info); color: white; cursor: pointer; font-family: var(--font); margin-bottom: 8px;">Şifreyi Kaydet</button>
+    </div>
+    <div id="auth-login-form">
     <div class="modal-row">
       <label style="font-size: 12px; color: var(--text-secondary); display: block; margin-bottom: 4px;">E-posta</label>
       <input type="email" id="auth-email" style="width: 100%; padding: 10px 12px; border: 0.5px solid var(--border-secondary); border-radius: 8px; background: var(--bg-primary); color: var(--text-primary); font-size: 14px; font-family: var(--font);" autocomplete="email">
@@ -307,6 +321,10 @@ body { margin: 0; padding: 0; font-family: var(--font); background: var(--bg-sec
       <input type="password" id="auth-password" style="width: 100%; padding: 10px 12px; border: 0.5px solid var(--border-secondary); border-radius: 8px; background: var(--bg-primary); color: var(--text-primary); font-size: 14px; font-family: var(--font);" autocomplete="current-password">
     </div>
     <button id="auth-login-btn" style="width:100%; padding: 11px; font-size: 14px; font-weight: 500; border-radius: 8px; border: none; background: var(--text-info); color: white; cursor: pointer; font-family: var(--font); margin-bottom: 8px;">Giriş Yap</button>
+    <div style="text-align:center; margin-top: 4px;">
+      <a href="#" id="auth-forgot-link" style="font-size: 12px; color: var(--text-info); text-decoration: none;">Şifremi unuttum</a>
+    </div>
+    </div>
     <div id="auth-loading" style="display:none; text-align:center; font-size: 12px; color: var(--text-secondary); margin-top: 8px;">Bağlanıyor...</div>
     <div style="text-align: center; font-size: 11px; color: var(--text-tertiary); margin-top: 16px; line-height: 1.5;">
       Verilerin Supabase bulutunda<br>güvenle saklanır. Tüm cihazlardan erişebilirsin.
@@ -790,6 +808,88 @@ async function signOut() {
   document.getElementById('auth-email').value = '';
   document.getElementById('auth-password').value = '';
 }
+
+// ŞİFREMİ UNUTTUM: e-postaya sıfırlama bağlantısı gönder, bağlantıyla gelince yeni şifre iste
+const isRecoveryLink = /type=recovery/.test(window.location.hash);
+let recoveryShown = false;
+
+function showAuthMessage(kind, text) {
+  const errEl = document.getElementById('auth-error');
+  const infoEl = document.getElementById('auth-info');
+  errEl.style.display = 'none';
+  infoEl.style.display = 'none';
+  if (!text) return;
+  const el = kind === 'error' ? errEl : infoEl;
+  el.textContent = text;
+  el.style.display = 'block';
+}
+
+async function sendPasswordReset() {
+  const email = document.getElementById('auth-email').value.trim();
+  if (!email) {
+    showAuthMessage('error', 'Önce e-posta adresini yaz, sonra "Şifremi unuttum"a bas.');
+    document.getElementById('auth-email').focus();
+    return;
+  }
+  if (!supabaseClient) {
+    showAuthMessage('error', 'Bağlantı hazır değil. Sayfayı yenile.');
+    return;
+  }
+  if (!/^https?:$/.test(window.location.protocol)) {
+    showAuthMessage('error', 'Şifre sıfırlama için Panom\'u bilgisayardaki adresinden (http://...) aç.');
+    return;
+  }
+  const loadEl = document.getElementById('auth-loading');
+  loadEl.style.display = 'block';
+  try {
+    const redirectTo = window.location.origin + window.location.pathname;
+    const { error } = await supabaseClient.auth.resetPasswordForEmail(email, { redirectTo });
+    if (error) throw error;
+    showAuthMessage('info', email + ' adresine şifre sıfırlama bağlantısı gönderildi. E-postandaki bağlantıya tıkla.');
+  } catch (err) {
+    showAuthMessage('error', 'Gönderilemedi: ' + (err.message || 'Bilinmeyen hata'));
+  } finally {
+    loadEl.style.display = 'none';
+  }
+}
+
+function showRecoveryForm() {
+  recoveryShown = true;
+  document.getElementById('app-container').style.display = 'none';
+  document.getElementById('auth-screen').style.display = 'flex';
+  document.getElementById('auth-login-form').style.display = 'none';
+  document.getElementById('auth-recovery').style.display = 'block';
+  showAuthMessage(null, '');
+  document.getElementById('auth-new-password').focus();
+}
+
+async function saveNewPassword() {
+  const p1 = document.getElementById('auth-new-password').value;
+  const p2 = document.getElementById('auth-new-password2').value;
+  if (p1.length < 6) { showAuthMessage('error', 'Şifre en az 6 karakter olmalı.'); return; }
+  if (p1 !== p2) { showAuthMessage('error', 'İki şifre aynı değil.'); return; }
+  const btn = document.getElementById('auth-save-password-btn');
+  btn.disabled = true; btn.style.opacity = '0.6';
+  try {
+    const { data, error } = await supabaseClient.auth.updateUser({ password: p1 });
+    if (error) throw error;
+    history.replaceState(null, '', window.location.pathname + window.location.search);
+    recoveryShown = false;
+    document.getElementById('auth-recovery').style.display = 'none';
+    document.getElementById('auth-login-form').style.display = 'block';
+    showAuthMessage(null, '');
+    currentUser = data.user;
+    await onLoginSuccess();
+  } catch (err) {
+    showAuthMessage('error', 'Şifre kaydedilemedi: ' + (err.message || 'Bilinmeyen hata') + ' (Bağlantının süresi dolmuş olabilir, tekrar "Şifremi unuttum"a bas.)');
+  } finally {
+    btn.disabled = false; btn.style.opacity = '1';
+  }
+}
+
+document.getElementById('auth-forgot-link').addEventListener('click', (e) => { e.preventDefault(); sendPasswordReset(); });
+document.getElementById('auth-save-password-btn').addEventListener('click', saveNewPassword);
+document.getElementById('auth-new-password2').addEventListener('keydown', (e) => { if (e.key === 'Enter') saveNewPassword(); });
 
 async function checkExistingSession() {
   const { data: { session } } = await supabaseClient.auth.getSession();
@@ -2279,6 +2379,15 @@ window.signOut = signOut;
     return;
   }
   supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  supabaseClient.auth.onAuthStateChange((event) => {
+    if (event === 'PASSWORD_RECOVERY' && !recoveryShown) showRecoveryForm();
+  });
+  if (isRecoveryLink) {
+    const { data: { session } } = await supabaseClient.auth.getSession();
+    if (session) { showRecoveryForm(); return; }
+    showAuthMessage('error', 'Sıfırlama bağlantısı geçersiz ya da süresi dolmuş. E-postanı yazıp tekrar "Şifremi unuttum"a bas.');
+    history.replaceState(null, '', window.location.pathname + window.location.search);
+  }
   const hasSession = await checkExistingSession();
   if (!hasSession) {
     document.getElementById('auth-email').focus();
